@@ -1,0 +1,15 @@
+# Maven build output
+target/
+
+# VS Code
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Sensitive config (DB password)
+application.properties

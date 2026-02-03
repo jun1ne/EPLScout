@@ -1,0 +1,29 @@
+body {
+    font-family: Arial, sans-serif;
+    padding: 20px;
+}
+
+.control {
+    margin-bottom: 10px;
+}
+
+.card {
+    border: 1px solid #ccc;
+    padding: 10px;
+    margin-bottom: 10px;
+    cursor: pointer;
+}
+
+/*  포지션 강조 */
+.Defender {
+    color: #1e90ff;
+}
+.Midfielder {
+    color: #2ecc71;
+}
+.Attacker {
+    color: #e74c3c;
+}
+.Goalkeeper {
+    color: #f1c40f;
+}
