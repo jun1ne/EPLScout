@@ -2,26 +2,81 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>EPL Scout Recommendation</title>
+    <title>EPL Scout - Player Recommendation</title>
     <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
 
-<h1>EPL Scout Recommendation</h1>
+<!-- ================= 상단 네비게이션 ================= -->
+<header class="top-nav">
+    <h1>EPL Scout - Player Recommendation</h1>
+    <nav>
+        <a href="/dashboard.html">메인 대시보드</a>
+        <a href="/team.html">팀 관리</a>
+        <a href="/index.html" class="active">스카우트 추천</a>
+    </nav>
+</header>
 
-<div class="control">
-    Team ID:
-    <input type="number" id="teamId" value="33">
-    Season:
-    <input type="number" id="season" value="2023">
-    <button onclick="runRecommendation()">추천 실행</button>
+<div class="container">
+
+    <!-- ================= 팀 선택 ================= -->
+    <div class="section">
+        <h2>팀 선택</h2>
+
+        <div class="controls">
+            <label>팀</label>
+            <select id="teamSelect"></select>
+
+            <label>시즌</label>
+            <input type="number" id="seasonInput" value="2023">
+
+            <button id="recommendBtn" class="btn">추천 조회</button>
+        </div>
+    </div>
+
+    <!-- ================= 팀 분석 결과 ================= -->
+    <div class="section">
+        <h2>팀 분석 결과</h2>
+
+        <!-- 
+            팀 분석 요약 영역
+            - 평균 연령
+            - 평균 평점
+            - 포지션 분포
+            - 약점 포지션
+        -->
+        <div id="teamAnalysis">
+            팀을 선택해주세요.
+        </div>
+    </div>
+
+    <!-- ================= 추천 선수 ================= -->
+    <div class="section">
+        <h2>추천 선수</h2>
+
+        <!-- 
+            추천 선수 카드 리스트
+            - JS(app.js)에서 동적으로 카드 생성
+            - 각 카드 내부에:
+              · 기본 점수(score)
+              · 포텐셜 점수
+              · (추후) 점수 breakdown 영역 포함 가능
+        -->
+        <div id="recommendList"></div>
+
+        <!-- 
+            [확장 설계 포인트]
+            - baseScore / positionBonus가
+              API 응답에 포함되면
+              카드 내부에 자동으로
+              점수 구성 정보가 표시됨
+            - 현재는 구조만 준비된 상태
+        -->
+    </div>
+
 </div>
 
-<hr>
-
-<h2>추천 결과</h2>
-<div id="result"></div>
-
+<!-- 메인 JS -->
 <script src="/js/app.js"></script>
 </body>
 </html>
