@@ -22,7 +22,7 @@ public class ScoutRecommendationController {
      */
     @GetMapping("/view/{teamId}/{season}")
     public Map<String, Object> viewScout(
-            @PathVariable long teamId,  
+            @PathVariable long teamId,
             @PathVariable int season
     ) {
         return scoutService.view(teamId, season);
@@ -50,6 +50,19 @@ public class ScoutRecommendationController {
                 score,
                 potentialScore
         );
+    }
+
+    /**
+     * 추천 강제 재계산 (DB 저장 기반)
+     * 외부 API 없이 내부 DB 데이터 기반으로만 재계산 수행
+     */
+    @PostMapping("/recalculate/{teamId}/{season}")
+    public Map<String, Object> recalculate(
+            @PathVariable long teamId,
+            @PathVariable int season
+    ) {
+        scoutService.recommendPlayers(teamId, season);
+        return scoutService.view(teamId, season);
     }
 
     // null-safe 파싱

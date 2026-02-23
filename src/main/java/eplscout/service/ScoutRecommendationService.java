@@ -28,7 +28,6 @@ import java.util.*;
 public class ScoutRecommendationService {
 
     private final ScoutRecommendationDao recommendationDao;
-    private final LLMService llmService;
     private final TeamSummaryService teamSummaryService;
 
     /* ===============================
@@ -46,11 +45,9 @@ public class ScoutRecommendationService {
 
     public ScoutRecommendationService(
             ScoutRecommendationDao recommendationDao,
-            LLMService llmService,
             TeamSummaryService teamSummaryService
     ) {
         this.recommendationDao = recommendationDao;
-        this.llmService = llmService;
         this.teamSummaryService = teamSummaryService;
     }
 
@@ -374,8 +371,7 @@ public class ScoutRecommendationService {
 
     public Map<String, Object> view(long teamId, int season) {
 
-        recommendPlayers(teamId, season, "NORMAL");
-
+        // 이미 저장된 추천 결과만 조회
         Map<String, Object> result = new HashMap<>();
 
         result.put(
@@ -394,33 +390,71 @@ public class ScoutRecommendationService {
             double potentialScore
     ) {
 
-        int season = 2023; // 현재 시스템 기본 시즌
+        int season = 2025; // 현재 시스템 기본 시즌
 
         PlayerSeasonStat stat =
                 loadSeasonStatForLLM(playerName, season);
 
         if (stat == null) {
-            return llmService.generateRecommendationReason(
+            return buildRuleBasedReason(
                     teamName,
                     playerName,
                     position,
                     score,
                     potentialScore,
-                    "팀 전력 구조와 연령을 고려한 추천"
+                    null
             );
         }
 
-        return llmService.generateAdvancedRecommendationReason(
+        return buildRuleBasedReason(
                 teamName,
                 playerName,
                 position,
-                stat.getGoals(),
-                stat.getAssists(),
-                stat.getRating(),
-                stat.getAppearances(),
                 score,
-                potentialScore
+                potentialScore,
+                stat
         );
+    }
+
+    private String buildRuleBasedReason(
+            String teamName,
+            String playerName,
+            String position,
+            double score,
+            double potentialScore,
+            PlayerSeasonStat stat
+    ) {
+
+        StringBuilder sb = new StringBuilder();
+
+        sb.append(playerName)
+          .append(" 선수는 ")
+          .append(teamName)
+          .append("의 ")
+          .append(position)
+          .append(" 포지션 보강을 위해 추천되었습니다. ");
+
+        sb.append("최종 점수는 ")
+          .append(String.format("%.2f", score))
+          .append("점이며, ");
+
+        sb.append("잠재력 점수는 ")
+          .append(String.format("%.2f", potentialScore))
+          .append("점입니다. ");
+
+        if (stat != null) {
+            sb.append("시즌 평균 평점 ")
+              .append(String.format("%.2f", stat.getRating()))
+              .append(", ");
+
+            sb.append("출전 ")
+              .append(stat.getAppearances())
+              .append("경기 기록을 보유하고 있습니다. ");
+        }
+
+        sb.append("팀 전력 구조와 연령 밸런스를 고려한 전략적 추천입니다.");
+
+        return sb.toString();
     }
 
     public void recommendPlayers(long teamId, int season) {

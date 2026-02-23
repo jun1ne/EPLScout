@@ -25,7 +25,7 @@ public class ScoutRecommendationDao {
             String position,
             double score,
             double potentialScore,
-            double playerValue, 
+            double playerValue,
             String reason
     ) {
 
@@ -51,7 +51,7 @@ public class ScoutRecommendationDao {
             ps.setString(4, position);
             ps.setDouble(5, score);
             ps.setDouble(6, potentialScore);
-            ps.setDouble(7, playerValue); 
+            ps.setDouble(7, playerValue);
             ps.setString(8, reason);
 
             ps.executeUpdate();
@@ -99,7 +99,8 @@ public class ScoutRecommendationDao {
                 sr.position,
                 sr.score,
                 sr.potential_score,
-                sr.player_value, 
+                sr.player_value,
+                sr.reason,
                 t.logo_url AS club_logo
             FROM scout_recommendation sr
             JOIN player p ON sr.player_id = p.player_id
@@ -138,7 +139,13 @@ public class ScoutRecommendationDao {
                     //  선수 가치 추가
                     row.put("playerValue", rs.getDouble("player_value"));
 
-               
+                    //  추천 사유 (DB 저장값 사용)
+                    String reason = rs.getString("reason");
+                    if (reason == null || reason.isBlank()) {
+                        reason = "추천 사유 정보 없음";
+                    }
+                    row.put("reason", reason);
+
                     row.put("photoUrl", rs.getString("photo_url"));
                     row.put("clubLogo", rs.getString("club_logo"));
 

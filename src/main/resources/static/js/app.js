@@ -287,14 +287,15 @@ async function renderRecommendList(players, summary) {
             <div class="value-bar">
                 <div class="value-fill grade-${grade}" style="width:${valuePercent}%"></div>
             </div>
-            <div class="reason-box" style="display:none;"></div>
+            <div class="reason-box" style="display:none;">
+                ${player.reason ?? "추천 사유 정보 없음"}
+            </div>
         `;
 
         const btn = card.querySelector(".toggle-btn");
         const box = card.querySelector(".reason-box");
-        let loaded = false;
 
-        btn.onclick = async () => {
+        btn.onclick = () => {
 
             if (box.style.display === "block") {
                 box.style.display = "none";
@@ -304,39 +305,6 @@ async function renderRecommendList(players, summary) {
 
             box.style.display = "block";
             btn.innerText = "닫기";
-
-            if (loaded) return;
-
-            box.innerText = "추천 이유 생성 중...";
-
-            try {
-
-                const teamName =
-                    document.getElementById("teamSelect")
-                        .selectedOptions[0].textContent;
-
-                const res = await fetch(
-                    "/api/scout/recommendation/reason",
-                    {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            teamName,
-                            playerName: player.playerName,
-                            position: player.position,
-                            score: scoutScore,
-                            potentialScore: potential
-                        })
-                    }
-                );
-
-                box.innerText = await res.text();
-                loaded = true;
-
-            } catch (e) {
-                console.error(e);
-                box.innerText = "추천 이유를 불러오지 못했습니다.";
-            }
         };
 
         list.appendChild(card);
