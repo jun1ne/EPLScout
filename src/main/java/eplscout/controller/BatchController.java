@@ -1,9 +1,9 @@
 package eplscout.controller;
 
-import eplscout.service.PlayerSeasonStatService;
-import eplscout.service.ScoutRecommendationService;
 import eplscout.dao.TeamDao;
 import eplscout.model.Team;
+import eplscout.service.*;
+
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -12,101 +12,72 @@ import java.util.List;
 @RequestMapping("/api/batch")
 public class BatchController {
 
-    private final PlayerSeasonStatService statService;
-    private final ScoutRecommendationService recommendationService;
+    private final TeamApiService teamApiService;
     private final TeamDao teamDao;
+    private final PlayerSeasonStatService statService;
+    private final LeagueStandingService leagueStandingService;
+    private final PlayerApiService playerApiService; 
 
     public BatchController(
+            TeamApiService teamApiService,
+            TeamDao teamDao,
             PlayerSeasonStatService statService,
-            ScoutRecommendationService recommendationService,
-            TeamDao teamDao
+            LeagueStandingService leagueStandingService,
+            PlayerApiService playerApiService
     ) {
-        this.statService = statService;
-        this.recommendationService = recommendationService;
+        this.teamApiService = teamApiService;
         this.teamDao = teamDao;
+        this.statService = statService;
+        this.leagueStandingService = leagueStandingService;
+        this.playerApiService = playerApiService;
     }
 
-    /**
-     * 선수 시즌 스탯 적재 (리그 전체)
-     * 호출:
-     * /api/batch/player-stats?leagueId=39&season=2023
-     */
-    @GetMapping("/player-stats")
-    public String loadPlayerStats(
+    /* ==================================================
+       전체 시즌 파이프라인 실행
+    ================================================== */
+    @GetMapping("/full")
+    public String runFullPipeline(
             @RequestParam int leagueId,
-            @RequestParam int season
+            @RequestParam int start,
+            @RequestParam int end
     ) throws Exception {
 
-        List<Team> teams =
-                teamDao.findTeamsByLeagueAndSeason(leagueId, season);
+        for (int season = start; season <= end; season++) {
 
-        for (Team team : teams) {
-            statService.loadTeamSeasonStats(
+            System.out.println("==========");
+            System.out.println("▶ 시즌 시작: " + season);
+            System.out.println("==========");
+
+            /*  리그 순위 */
+            leagueStandingService.fetchAndSaveStandings(
                     leagueId,
-                    season,
-                    team.getApiTeamId() 
+                    season
             );
+
+            /*  팀 수집 */
+            List<Team> teams =
+                    teamApiService.fetchTeams(leagueId, season);
+
+            teamDao.upsertTeams(teams);
+
+            /*  선수 기본정보 API 수집  */
+            for (Team team : teams) {
+
+                playerApiService.loadTeamPlayers(
+                        team.getApiTeamId(),
+                        season
+                );
+
+                statService.loadTeamSeasonStats(
+                        leagueId,
+                        season,
+                        team.getApiTeamId()
+                );
+            }
+
+            System.out.println(" 시즌 완료: " + season);
         }
 
-        return "OK - player_season_stat 적재 완료";
+        return "OK - 전체 시즌 파이프라인 완료";
     }
-
-    /**
-     * 단일 팀 추천 계산
-     * 호출:
-     * /api/batch/recommend?teamId=49&season=2023
-     *  teamId = API 팀 ID
-     */
-    @GetMapping("/recommend")
-    public String recommendOne(
-            @RequestParam int teamId,
-            @RequestParam int season
-    ) throws Exception {
-
-        long internalTeamId =
-                teamDao.findTeamIdByApiTeamIdAndSeason(teamId, season);
-
-        if (internalTeamId == 0) {
-            return "ERROR - 팀 ID 매핑 실패";
-        }
-
-        recommendationService.recommendPlayers(
-                internalTeamId,
-                season
-        );
-
-        return "OK - 단일 팀 추천 완료";
-    }
-
-    /**
-     * 모든 팀 추천 계산
-     * 호출:
-     * /api/batch/recommend-all?leagueId=39&season=2023
-     */
-    @GetMapping("/recommend-all")
-public String recommendAll(
-        @RequestParam int leagueId,
-        @RequestParam int season
-) {
-
-    List<Team> teams =
-            teamDao.findTeamsByLeagueAndSeason(leagueId, season);
-
-    for (Team team : teams) {
-
-        long internalTeamId = team.getTeamId(); //  내부 team_id
-
-        System.out.println(
-                "▶ 추천 배치 실행: teamId=" + internalTeamId
-        );
-
-        recommendationService.recommendPlayers(
-                internalTeamId,
-                season
-        );
-    }
-
-    return "OK - 모든 팀 추천 완료";
 }
-}
-

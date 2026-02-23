@@ -10,12 +10,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.LocalDate;
 
-/**
- * PlayerApiService
- *
- * - players API 전담
- * - 선수 기본 정보 + 시즌 정보 분리 적재
- */
+import org.springframework.stereotype.Service;
+
+@Service
 public class PlayerApiService {
 
     private static final String API_KEY = "a170bd56a00dfe33e79d77ee714398ac";
@@ -26,61 +23,86 @@ public class PlayerApiService {
 
     public void loadTeamPlayers(int apiTeamId, int season) throws Exception {
 
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(API_URL +
-                        "?league=39" +
-                        "&season=" + season +
-                        "&team=" + apiTeamId))
-                .header("x-apisports-key", API_KEY)
-                .GET()
-                .build();
+        HttpClient client = HttpClient.newHttpClient();
 
-        HttpResponse<String> response =
-                HttpClient.newHttpClient()
-                        .send(request, HttpResponse.BodyHandlers.ofString());
+        int page = 1;
+        int totalPages = 1;
 
-        JSONObject json = new JSONObject(response.body());
-        JSONArray players = json.getJSONArray("response");
+        do {
 
-        for (int i = 0; i < players.length(); i++) {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(API_URL +
+                            "?league=39" +
+                            "&season=" + season +
+                            "&team=" + apiTeamId +
+                            "&page=" + page))
+                    .header("x-apisports-key", API_KEY)
+                    .GET()
+                    .build();
 
-            JSONObject p = players.getJSONObject(i);
-            JSONObject player = p.getJSONObject("player");
-            JSONObject games =
-                    p.getJSONArray("statistics")
-                     .getJSONObject(0)
-                     .getJSONObject("games");
+            HttpResponse<String> response =
+                    client.send(request, HttpResponse.BodyHandlers.ofString());
 
-            int apiPlayerId = player.getInt("id");
-            String name = player.getString("name");
-            String photo = player.optString("photo", null);
+            JSONObject json = new JSONObject(response.body());
 
-            // birth_date
-            LocalDate birthDate = null;
-            if (!player.isNull("birth")) {
-                String date = player.getJSONObject("birth").optString("date", null);
-                if (date != null) birthDate = LocalDate.parse(date);
+            // paging 정보 읽기
+            if (json.has("paging")) {
+                totalPages = json.getJSONObject("paging").optInt("total", 1);
             }
 
-            // 1️⃣ 고정 정보
-            playerDao.upsertPlayerBase(
-                    apiPlayerId,
-                    name,
-                    birthDate,
-                    photo
-            );
+            JSONArray players = json.getJSONArray("response");
 
-            // 2️⃣ 시즌 정보
-            Integer age = player.optInt("age", 0);
-            if (age == 0) age = null;
+            for (int i = 0; i < players.length(); i++) {
 
-            String position = games.optString("position", null);
+                JSONObject p = players.getJSONObject(i);
+                JSONObject player = p.getJSONObject("player");
+                JSONObject stat =
+                        p.getJSONArray("statistics").getJSONObject(0);
 
-            playerDao.updateSeasonInfo(
-                    apiPlayerId,
-                    age,
-                    position
-            );
-        }
+                JSONObject games = stat.getJSONObject("games");
+
+                int apiPlayerId = player.getInt("id");
+                String name = player.getString("name");
+                String photo = player.optString("photo", null);
+
+                Integer age = player.optInt("age", 0);
+                if (age == 0) age = null;
+
+                String nationality = player.optString("nationality", null);
+
+                String height = player.optString("height", null);
+                String weight = player.optString("weight", null);
+
+                Integer shirtNumber = games.optInt("number", 0);
+                if (shirtNumber == 0) shirtNumber = null;
+
+                String position = games.optString("position", null);
+
+                // birth_date
+                LocalDate birthDate = null;
+                if (!player.isNull("birth")) {
+                    String date = player.getJSONObject("birth")
+                                        .optString("date", null);
+                    if (date != null) birthDate = LocalDate.parse(date);
+                }
+
+                // DB 저장
+                playerDao.upsertFullPlayer(
+                        apiPlayerId,
+                        name,
+                        birthDate,
+                        photo,
+                        age,
+                        position,
+                        shirtNumber,
+                        nationality,
+                        height,
+                        weight
+                );
+            }
+
+            page++;
+
+        } while (page <= totalPages);
     }
 }

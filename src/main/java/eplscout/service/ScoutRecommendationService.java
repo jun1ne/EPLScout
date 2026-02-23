@@ -2,17 +2,47 @@ package eplscout.service;
 
 import eplscout.dao.ScoutRecommendationDao;
 import eplscout.db.DBUtil;
+import eplscout.model.PlayerSeasonStat;
+import eplscout.model.PlayerInjuryStat;
+import eplscout.model.Player;
+import eplscout.scoring.PerformanceCalculator;
+import eplscout.scoring.InjuryRiskCalculator;
+import eplscout.scoring.PlayerValueCalculator;
 import org.springframework.stereotype.Service;
 
 import java.sql.*;
 import java.util.*;
 
+/**
+ * ScoutRecommendationService
+ *
+ * 핵심 책임:
+ * 1. 시즌 기준 외부 선수 풀 조회
+ * 2. 퍼포먼스 점수 계산
+ * 3. 부상 리스크 반영
+ * 4. 팀 구조(약점/연령) 보정
+ * 5. 최종 추천 점수 및 포텐셜 산출
+ * 6. scout_recommendation 테이블 저장
+ */
 @Service
 public class ScoutRecommendationService {
 
     private final ScoutRecommendationDao recommendationDao;
     private final LLMService llmService;
     private final TeamSummaryService teamSummaryService;
+
+    /* ===============================
+       계산 전용 객체 (점수 엔진)
+       =============================== */
+
+    private final PerformanceCalculator performanceCalculator =
+            new PerformanceCalculator();
+
+    private final InjuryRiskCalculator injuryRiskCalculator =
+            new InjuryRiskCalculator();
+
+    private final PlayerValueCalculator playerValueCalculator =
+            new PlayerValueCalculator();
 
     public ScoutRecommendationService(
             ScoutRecommendationDao recommendationDao,
@@ -25,61 +55,63 @@ public class ScoutRecommendationService {
     }
 
     /* =====================================================
-       배치 추천 계산
+       배치 추천 계산 (부상 고급 반영 버전)
        ===================================================== */
-    public void recommendPlayers(long teamId, int season) {
+    public void recommendPlayers(long teamId, int season, String mode) {
 
-        /* ===============================
-           0. 팀 요약 정보 ( 여기 수정됨)
-           =============================== */
         Map<String, Object> teamSummary =
                 teamSummaryService.getTeamSummary(teamId, season);
 
-        //  avgAge 안전 처리
-        Object avgAgeObj = teamSummary.get("avgAge");
-        double teamAvgAge =
-                avgAgeObj == null
-                        ? 0.0
-                        : ((Number) avgAgeObj).doubleValue();
+        double teamAvgAge = teamSummary.get("avgAge") == null
+                ? 0.0
+                : ((Number) teamSummary.get("avgAge")).doubleValue();
 
-        //  weakPositions 안전 처리
-        Object weakObj = teamSummary.get("weakPositions");
-        Set<String> weakPositions;
-
-        if (weakObj instanceof Set) {
-            weakPositions = (Set<String>) weakObj;
-        } else if (weakObj instanceof List) {
-            weakPositions = new HashSet<>((List<String>) weakObj);
-        } else {
-            weakPositions = new HashSet<>();
-        }
+        double teamLevel = teamSummary.get("avgRating") == null
+                ? 0.0
+                : ((Number) teamSummary.get("avgRating")).doubleValue();
 
         boolean agingTeam = teamAvgAge >= 27.5;
 
-        String sql = """
-            SELECT
-                p.player_id,
-                p.name,
-                p.position,
-                p.age,
-                pss.appearances,
-                pss.minutes_played,
-                pss.avg_rating,
-                pss.goals,
-                pss.assists,
-                pss.shots,
-                pss.key_passes,
-                pss.pass_accuracy,
-                pss.tackles,
-                pss.interceptions,
-                pss.clearances,
-                pss.saves,
-                pss.goals_conceded
-            FROM player_season_stat pss
-            JOIN player p ON pss.player_id = p.player_id
-            WHERE pss.season = ?
-              AND pss.team_id != ?
-        """;
+        // 기존 추천 결과 삭제
+        recommendationDao.deleteByTeamAndSeason(teamId, season);
+
+        List<String> weakPositions =
+                (List<String>) teamSummary.get("weakPositions");
+
+        if (weakPositions == null || weakPositions.isEmpty()) {
+            return;
+        }
+
+        List<String> normalizedWeakPositions = new ArrayList<>();
+        for (String pos : weakPositions) {
+            normalizedWeakPositions.add(normalizePosition(pos));
+        }
+
+        String sql =
+                "SELECT " +
+                "p.player_id, " +
+                "p.name, " +
+                "p.position, " +
+                "p.age, " +
+                "p.birth_date, " +
+                "pss.team_id, " +
+                "pss.appearances, " +
+                "pss.minutes_played, " +
+                "pss.avg_rating, " +
+                "pss.goals, " +
+                "pss.assists, " +
+                "pss.shots, " +
+                "pss.key_passes, " +
+                "pss.pass_accuracy, " +
+                "pss.tackles, " +
+                "pss.interceptions, " +
+                "pss.clearances, " +
+                "pss.saves, " +
+                "pss.goals_conceded " +
+                "FROM player_season_stat pss " +
+                "JOIN player p ON pss.player_id = p.player_id " +
+                "WHERE pss.season = ? " +
+                "AND pss.team_id != ?";
 
         try (Connection conn = DBUtil.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -88,103 +120,88 @@ public class ScoutRecommendationService {
             ps.setLong(2, teamId);
 
             try (ResultSet rs = ps.executeQuery()) {
+
                 while (rs.next()) {
 
-                    long playerId = rs.getLong("player_id");
-                    String playerName = rs.getString("name");
+                    PlayerSeasonStat stat =
+                            buildPlayerSeasonStat(rs, season);
 
-                    //  포지션 정규화
-                    String rawPosition = rs.getString("position");
-                    String position = normalizePosition(rawPosition);
+                    if (!normalizedWeakPositions.contains(stat.getPosition())) {
+                        continue;
+                    }
 
-                    int age = rs.getInt("age");
-                    int apps = rs.getInt("appearances");
-                    int minutes = rs.getInt("minutes_played");
-                    double rating = rs.getDouble("avg_rating");
+                    Player player = new Player(
+                            rs.getInt("player_id"),
+                            rs.getString("name"),
+                            rs.getInt("age"),
+                            0,
+                            rs.getString("position"),
+                            null
+                    );
+
+                    player.setName(rs.getString("name"));
+                    player.setPosition(rs.getString("position"));
+                    player.setAge(rs.getInt("age"));
+
+                    java.sql.Date birth = rs.getDate("birth_date");
+
+                    if (birth != null) {
+                        player.setBirthDate(birth.toLocalDate());
+                    }
+
+                    PlayerInjuryStat injuryStat =
+                            loadInjuryStat(conn,
+                                    stat.getPlayerId(),
+                                    season);
+
+                    if (injuryStat != null && injuryStat.isCurrentInjured()) {
+                        continue;
+                    }
+
+                    double injuryRate =
+                            injuryStat == null ? 0.0 :
+                                    injuryStat.getInjuryRate();
 
                     /* ===============================
-                       1. 기본 실력 점수
+                        Market Value 통일 계산
                        =============================== */
-                    double baseScore =
-                            apps * 0.4
-                          + (minutes / 90.0) * 0.3
-                          + rating * 10 * 0.3;
-
-                    double positionBonus =
-                            PositionStatBonusCalculator.calculate(
-                                    position,
-                                    rs.getInt("goals"),
-                                    rs.getInt("assists"),
-                                    rs.getInt("shots"),
-                                    rs.getInt("key_passes"),
-                                    rs.getDouble("pass_accuracy"),
-                                    rs.getInt("tackles"),
-                                    rs.getInt("interceptions"),
-                                    rs.getInt("clearances"),
-                                    rs.getInt("saves"),
-                                    rs.getInt("goals_conceded")
+                    double playerValue =
+                            playerValueCalculator.calculateValue(
+                                    stat,
+                                    player,
+                                    stat.getRating(),
+                                    injuryRate
                             );
 
-                    double finalScore = baseScore + positionBonus;
+                    // 100점 스케일 변환
+                    playerValue = Math.min(playerValue * 100, 100);
 
-                    /* ===============================
-                       2. 포지션 적합도 보정
-                       =============================== */
-                    if (weakPositions.contains(position)) {
-                        finalScore *= 1.3;
-                    } else {
-                        finalScore *= 0.7;
-                    }
-
-                    /* ===============================
-                       3. 연령 보정
-                       =============================== */
-                    if (age <= 24 && agingTeam) {
-                        finalScore *= 1.1;
-                    } else if (age >= 29) {
-                        finalScore *= 0.9;
-                    }
-
-                    /* ===============================
-                       4. 포텐셜 점수
-                       =============================== */
                     double potentialScore =
-                            (age <= 23 ? 10 :
-                             age <= 26 ? 6 : 2)
-                            + rating * 2;
+                            calculatePotential(
+                                    player.getAge(),
+                                    stat.getRating(),
+                                    agingTeam,
+                                    injuryStat
+                            );
 
+                    double finalScore =
+                            (playerValue * 0.7)
+                          + (potentialScore * 5 * 0.3);
 
+                    finalScore *= 1.2;
 
+                    String styleDescription =
+                            "[AUTO] " + summarizePlayStyle(stat);
 
-
-                    if (agingTeam && age <= 24) {
-                        potentialScore *= 1.2;
-                    }
-
-
-
-                    /* ===============================
-                       5. 플레이 스타일 요약
-                       =============================== */
-                    String statSummary =
-                            summarizePlayStyle(position, rs);
-
-                    /* ===============================
-                       6. LLM 설명
-                       =============================== */
-                    String styleDescription = "[AUTO] " + statSummary;
-
-
-                    /* ===============================
-                       7. DB 저장
-                       =============================== */
                     recommendationDao.upsert(
+                            conn,
                             teamId,
-                            playerId,
+                            stat.getPlayerId(),
                             season,
-                            position,
+                            stat.getPosition(),
                             finalScore,
                             potentialScore,
+                            playerValue,
                             styleDescription
                     );
                 }
@@ -195,76 +212,180 @@ public class ScoutRecommendationService {
         }
     }
 
-    /* =====================================================
-       포지션 정규화
-       ===================================================== */
+    private double calculatePotential(
+            int age,
+            Double rating,
+            boolean agingTeam,
+            PlayerInjuryStat injuryStat
+    ) {
+
+        /*
+         * 성장 잠재력은 경기력과 분리하여
+         * "연령 기반 성장 가능성 지표"로 설계
+         */
+
+        double base;
+
+        if (age <= 21) base = 10;
+        else if (age <= 24) base = 8;
+        else if (age <= 27) base = 5;
+        else if (age <= 30) base = 2;
+        else base = 0.5;
+
+        double result = base;
+
+        // 고령 팀일 경우 젊은 선수 보정
+        if (agingTeam && age <= 24) {
+            result *= 1.2;
+        }
+
+        // 최근 3년 부상 이력 많으면 감점
+        if (injuryStat != null &&
+                injuryStat.getTotalInjuryLast3Years() >= 5) {
+            result *= 0.75;
+        }
+
+        return result;
+    }
+
+    private PlayerInjuryStat loadInjuryStat(
+            Connection conn,
+            long playerId,
+            int season) throws SQLException {
+
+        String sql = """
+            SELECT *
+            FROM player_injury_stat
+            WHERE player_id = ?
+              AND season = ?
+        """;
+
+        try (PreparedStatement ps =
+                     conn.prepareStatement(sql)) {
+
+            ps.setLong(1, playerId);
+            ps.setInt(2, season);
+
+            try (ResultSet rs = ps.executeQuery()) {
+
+                if (rs.next()) {
+
+                    PlayerInjuryStat stat =
+                            new PlayerInjuryStat();
+
+                    stat.setPlayerId(playerId);
+                    stat.setSeason(season);
+                    stat.setInjuryGames(
+                            rs.getInt("injury_games"));
+                    stat.setInjuryRate(
+                            rs.getDouble("injury_rate"));
+                    stat.setRepeatInjuryCount(
+                            rs.getInt("repeat_injury_count"));
+                    stat.setTotalInjuryLast3Years(
+                            rs.getInt("total_injury_last3years"));
+                    stat.setCurrentInjured(
+                            rs.getInt("current_injured") == 1);
+
+                    return stat;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private PlayerSeasonStat loadSeasonStatForLLM(
+            String playerName,
+            int season) {
+
+        String sql = """
+            SELECT *
+            FROM player_season_stat pss
+            JOIN player p ON p.player_id = pss.player_id
+            WHERE p.name = ?
+              AND pss.season = ?
+            LIMIT 1
+        """;
+
+        try (Connection conn = DBUtil.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setString(1, playerName);
+            ps.setInt(2, season);
+
+            try (ResultSet rs = ps.executeQuery()) {
+
+                if (rs.next()) {
+                    return buildPlayerSeasonStat(rs, season);
+                }
+            }
+
+        } catch (Exception ignored) {
+        }
+
+        return null;
+    }
+
+    private PlayerSeasonStat buildPlayerSeasonStat(
+            ResultSet rs,
+            int season) throws SQLException {
+
+        PlayerSeasonStat stat = new PlayerSeasonStat();
+
+        stat.setPlayerId(rs.getLong("player_id"));
+        stat.setTeamId(rs.getLong("team_id"));
+        stat.setSeason(season);
+        stat.setPosition(normalizePosition(
+                rs.getString("position")));
+
+        stat.setAppearances(rs.getInt("appearances"));
+        stat.setMinutesPlayed(rs.getInt("minutes_played"));
+        stat.setRating(rs.getDouble("avg_rating"));
+
+        stat.setGoals(rs.getInt("goals"));
+        stat.setAssists(rs.getInt("assists"));
+        stat.setShots(rs.getInt("shots"));
+        stat.setKeyPasses(rs.getInt("key_passes"));
+        stat.setPassAccuracy(rs.getDouble("pass_accuracy"));
+
+        stat.setTackles(rs.getInt("tackles"));
+        stat.setInterceptions(rs.getInt("interceptions"));
+        stat.setClearances(rs.getInt("clearances"));
+
+        stat.setSaves(rs.getInt("saves"));
+        stat.setGoalsConceded(rs.getInt("goals_conceded"));
+
+        return stat;
+    }
+
     private String normalizePosition(String position) {
         return switch (position) {
             case "Goalkeeper" -> "GK";
-            case "Defender"   -> "DF";
+            case "Defender" -> "DF";
             case "Midfielder" -> "MF";
-            case "Attacker"   -> "FW";
+            case "Attacker" -> "FW";
             default -> position;
         };
     }
 
-    /* =====================================================
-       플레이 스타일 요약
-       ===================================================== */
-    private String summarizePlayStyle(String position, ResultSet rs)
-            throws SQLException {
-
-        List<String> traits = new ArrayList<>();
-
-        switch (position) {
-            case "MF" -> {
-                if (rs.getInt("key_passes") >= 40)
-                    traits.add("찬스 메이킹 능력이 뛰어남");
-                if (rs.getDouble("pass_accuracy") >= 85)
-                    traits.add("빌드업 안정성과 패스 완성도가 높음");
-                if (rs.getInt("shots") >= 30)
-                    traits.add("중거리 슈팅과 공격 가담 능력 보유");
-            }
-            case "DF" -> {
-                if (rs.getInt("tackles") + rs.getInt("interceptions") >= 60)
-                    traits.add("적극적인 압박과 볼 탈취 능력");
-                if (rs.getInt("clearances") >= 80)
-                    traits.add("박스 안 수비와 위기 대응에 강점");
-            }
-            case "FW" -> {
-                if (rs.getInt("goals") >= 10)
-                    traits.add("페널티 박스 내 결정력 우수");
-                if (rs.getInt("assists") >= 7)
-                    traits.add("연계 플레이에 적극적인 공격수");
-            }
-            case "GK" -> {
-                if (rs.getInt("saves") >= 70)
-                    traits.add("선방 능력이 뛰어난 골키퍼");
-                if (rs.getInt("goals_conceded") <= 40)
-                    traits.add("안정적인 경기 운영이 가능한 수문장");
-            }
-        }
-
-        return traits.isEmpty()
-                ? "전반적인 밸런스가 좋은 선수"
-                : String.join(", ", traits);
+    private String summarizePlayStyle(PlayerSeasonStat stat) {
+        return "전반적인 밸런스가 좋은 선수";
     }
 
-    /* =====================================================
-       GUI 조회
-       ===================================================== */
     public Map<String, Object> view(long teamId, int season) {
+
+        recommendPlayers(teamId, season, "NORMAL");
+
         Map<String, Object> result = new HashMap<>();
+
         result.put(
                 "recommendations",
                 recommendationDao.findForView(teamId, season)
         );
+
         return result;
     }
 
-    /* =====================================================
-       추천 사유
-       ===================================================== */
     public String generateRecommendationReason(
             String teamName,
             String playerName,
@@ -272,13 +393,37 @@ public class ScoutRecommendationService {
             double score,
             double potentialScore
     ) {
-        return llmService.generateRecommendationReason(
+
+        int season = 2023; // 현재 시스템 기본 시즌
+
+        PlayerSeasonStat stat =
+                loadSeasonStatForLLM(playerName, season);
+
+        if (stat == null) {
+            return llmService.generateRecommendationReason(
+                    teamName,
+                    playerName,
+                    position,
+                    score,
+                    potentialScore,
+                    "팀 전력 구조와 연령을 고려한 추천"
+            );
+        }
+
+        return llmService.generateAdvancedRecommendationReason(
                 teamName,
                 playerName,
                 position,
+                stat.getGoals(),
+                stat.getAssists(),
+                stat.getRating(),
+                stat.getAppearances(),
                 score,
-                potentialScore,
-                "팀 전력 구조와 연령을 고려한 추천"
+                potentialScore
         );
+    }
+
+    public void recommendPlayers(long teamId, int season) {
+        recommendPlayers(teamId, season, "NORMAL");
     }
 }

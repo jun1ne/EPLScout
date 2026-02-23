@@ -42,18 +42,18 @@ public class PositionStatBonusCalculator {
         return switch (position) {
 
             // =============================
-            // Attacker (기존 유지)
+            // Attacker
             // =============================
-            case "Attacker" -> {
+            case "FW" -> {
                 yield goals * 0.5
                      + assists * 0.3
                      + shots * 0.1;
             }
 
             // =============================
-            // Midfielder (기존 유지)
+            // Midfielder 
             // =============================
-            case "Midfielder" -> {
+            case "MF" -> {
                 yield assists * 0.4
                      + keyPasses * 0.3
                      + passAccuracy * 0.05;
@@ -62,7 +62,7 @@ public class PositionStatBonusCalculator {
             // =============================
             // Defender (clearances 보정)
             // =============================
-            case "Defender" -> {
+            case "DF" -> {
 
                 double tackleScore = tackles * 0.3;
                 double interceptionScore = interceptions * 0.04;
@@ -85,7 +85,7 @@ public class PositionStatBonusCalculator {
             // =============================
             // Goalkeeper (saves 보정)
             // =============================
-            case "Goalkeeper" -> {
+            case "GK" -> {
 
                 /**
                  * saves 처리 방식

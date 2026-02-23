@@ -2,59 +2,119 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>EPL Scout - 팀 관리</title>
+    <title>EPL Scout - 팀 상세</title>
     <link rel="stylesheet" href="/css/style.css">
+
+    <!-- Chart.js 추가 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 
-<!-- ================= 상단 네비게이션 ================= -->
-<header>
+<header class="main-header">
     <div class="header-inner">
-        <h1>EPL Scout - 팀 관리</h1>
+        <h1>팀 상세 정보</h1>
         <nav>
-            <a href="/dashboard.html">메인 대시보드</a>
-            <a href="/index.html">스카우트 추천</a>
+            <a href="/dashboard.html">대시보드</a>
+            <a href="/teams.html">팀 목록</a>
         </nav>
     </div>
 </header>
 
-<div class="container">
+<div class="team-detail-wrapper">
 
-    <!-- ================= 팀 선택 ================= -->
-    <div class="section">
-        <h2>팀 선택</h2>
+    <!-- ===================== TEAM HERO ===================== -->
+    <section class="team-hero">
+        <div class="hero-left">
 
-        <div class="controls">
-            <label>팀</label>
-            <select id="teamSelect"></select>
+            <img id="teamLogo"
+                 class="team-logo-img"
+                 src=""
+                 alt="팀 로고"
+                 style="width:120px; height:120px; object-fit:contain;" />
 
-            <label>시즌</label>
-            <input type="number" id="seasonInput" value="2023">
+            <div>
+                <h1 id="teamName">로딩 중...</h1>
 
-            <button id="loadBtn" class="btn">팀 조회</button>
+                <div class="season-select-wrapper">
+                    <label for="seasonSelect">시즌:</label>
+                    <select id="seasonSelect">
+                        <option value="2021">2021</option>
+                        <option value="2022">2022</option>
+                        <option value="2023">2023</option>
+                        <option value="2024">2024</option>
+                        <option value="2025">2025</option>
+                    </select>
+                </div>
+
+                <div id="teamSummary"></div>
+            </div>
+
         </div>
-    </div>
+    </section>
 
-    <!-- ================= 팀 상세 정보 ================= -->
-    <div class="section">
-        <h2>팀 상세 정보</h2>
+    <!-- ===================== STAT GRID ===================== -->
+    <section class="team-stat-grid">
+        <div class="team-stat-card">
+            <h4>평균 연령</h4>
+            <p id="avgAgeStat">-</p>
+        </div>
+        <div class="team-stat-card">
+            <h4>평균 평점</h4>
+            <p id="avgRatingStat">-</p>
+        </div>
+        <div class="team-stat-card">
+            <h4>선수단 규모</h4>
+            <p id="squadSizeStat">-</p>
+        </div>
+        <div class="team-stat-card">
+            <h4>시즌</h4>
+            <p id="seasonStat">-</p>
+        </div>
+    </section>
 
-        <div id="teamDetail">
-            팀을 선택하면 상세 정보가 표시됩니다.
+    <!-- ===================== MAIN GRID ===================== -->
+    <div class="team-main-grid">
+
+        <!-- 선수 목록 -->
+        <div class="card">
+            <h3>선수 명단</h3>
+            <table class="modern-table upgraded-table">
+                <thead>
+                    <tr>
+                        <th>번호</th>
+                        <th>선수명</th>
+                        <th>포지션</th>
+                        <th>나이</th>
+                        <th>국적</th>
+                    </tr>
+                </thead>
+                <tbody id="playerTableBody">
+                </tbody>
+            </table>
         </div>
 
-        <!-- 스카우트 화면으로 이동 -->
-        <div style="margin-top:16px;">
-            <button id="goRecommendBtn" class="btn">
-                이 팀 스카우트 추천 보기 →
-            </button>
+        <!-- 우측 패널 -->
+        <div class="side-panel">
+
+            <!-- ================= TEAM INSIGHTS ================= -->
+            <div class="card small-card">
+                <h3>전력 분석</h3>
+                <div id="weakPositionsBox">-</div>
+                <div id="positionCountBox"></div>
+            </div>
+
+            <!-- ================= PERFORMANCE ================= -->
+            <div class="card small-card">
+                <h3>포지션별 평균 평점</h3>
+                <canvas id="positionChart" height="200"></canvas>
+            </div>
+
         </div>
+
     </div>
 
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="/js/team.js"></script>
-
 </body>
 </html>

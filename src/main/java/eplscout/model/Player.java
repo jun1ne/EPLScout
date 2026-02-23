@@ -20,7 +20,7 @@ public class Player {
     // API 기준 나이 (표시/필터용)
     private int age;
 
-    // ★ 생년월일 (계산 기준값)
+    //  생년월일 (계산 기준값)
     private LocalDate birthDate;
 
     // 등번호 (스쿼드 기준)
@@ -34,7 +34,7 @@ public class Player {
 
     public Player() {}
 
-    // 🔹 기존 생성자 (유지)
+    // 기존 생성자 (유지)
     public Player(int apiPlayerId, String name, int age, LocalDate birthDate,
                   int number, String position, String photoUrl) {
         this.apiPlayerId = apiPlayerId;
@@ -46,7 +46,7 @@ public class Player {
         this.photoUrl = photoUrl;
     }
 
-    // ✅ 🔥 추가된 생성자 (API 응답용, birthDate 없는 경우)
+    //  추가된 생성자 (API 응답용, birthDate 없는 경우)
     public Player(
             int apiPlayerId,
             String name,

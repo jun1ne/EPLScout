@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Player Detail</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<header class="main-header">
+    <div class="header-inner">
+        <h1>Player Detail</h1>
+        <nav>
+            <a href="/dashboard.html">Dashboard</a>
+            <a href="/teams.html">Team List</a>
+        </nav>
+    </div>
+</header>
+
+<div class="dashboard-wrapper">
+
+    <div class="card" id="playerProfile"></div>
+
+    <div class="card chart-card">
+    <canvas id="playerChart"></canvas>
+
+    <div class="league-compare" id="leagueCompare"></div>
+
+    <div class="performance-summary" id="performanceSummary"></div>
+</div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="/js/player.js"></script>
+
+</body>
+</html>

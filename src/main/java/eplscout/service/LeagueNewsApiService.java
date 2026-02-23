@@ -7,23 +7,15 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 
-/**
- * LeagueStandingApiService
- *
- * 역할
- * - 외부 API-Football Standings API 호출
- * - JSON 원본 그대로 반환
- */
-public class LeagueStandingApiService {
+public class LeagueNewsApiService {
 
     private static final String API_KEY = "a170bd56a00dfe33e79d77ee714398ac";
 
-    public JSONObject fetchStandings(int leagueId, int season) throws Exception {
+    public JSONObject fetchLeagueNews(int leagueId) throws Exception {
 
         String urlStr =
-                "https://v3.football.api-sports.io/standings"
-              + "?league=" + leagueId
-              + "&season=" + season;
+                "https://v3.football.api-sports.io/news"
+                        + "?league=" + leagueId;
 
         URL url = new URL(urlStr);
         HttpURLConnection conn =

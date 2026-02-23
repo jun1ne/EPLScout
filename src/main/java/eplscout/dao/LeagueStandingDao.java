@@ -8,23 +8,11 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.*;
 
-/**
- * LeagueStandingDao
- *
- * 책임
- * - 리그 순위(standings) DB 저장
- * - 메인보드 화면용 리그 순위 조회
- *
- * 설계 원칙
- * - 계산 로직 없음
- * - API / Service에서 가공된 값만 저장
- * - 조회 전용 데이터 성격
- */
 @Repository
 public class LeagueStandingDao {
 
     /* ==================================================
-       리그 순위 UPSERT (배치 적재용)
+       리그 순위 UPSERT (team_logo 포함)
        ================================================== */
     public void upsert(
             int leagueId,
@@ -38,16 +26,18 @@ public class LeagueStandingDao {
             int points,
             int goalsFor,
             int goalsAgainst,
-            int goalDiff
+            int goalDiff,
+            String teamLogo
     ) {
 
         String sql = """
             INSERT INTO league_standing
                 (league_id, season, team_id,
                  `rank`, played, win, draw, lose,
-                 points, goals_for, goals_against, goal_diff)
+                 points, goals_for, goals_against, goal_diff,
+                 team_logo)
             VALUES
-                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
                 `rank` = VALUES(`rank`),
                 played = VALUES(played),
@@ -57,7 +47,8 @@ public class LeagueStandingDao {
                 points = VALUES(points),
                 goals_for = VALUES(goals_for),
                 goals_against = VALUES(goals_against),
-                goal_diff = VALUES(goal_diff)
+                goal_diff = VALUES(goal_diff),
+                team_logo = VALUES(team_logo)
         """;
 
         try (Connection conn = DBUtil.getConnection();
@@ -75,6 +66,7 @@ public class LeagueStandingDao {
             ps.setInt(10, goalsFor);
             ps.setInt(11, goalsAgainst);
             ps.setInt(12, goalDiff);
+            ps.setString(13, teamLogo);
 
             ps.executeUpdate();
 
@@ -93,8 +85,10 @@ public class LeagueStandingDao {
 
         String sql = """
             SELECT
+                ls.team_id,              
                 ls.rank,
                 t.name AS team_name,
+                ls.team_logo,
                 ls.played,
                 ls.win,
                 ls.draw,
@@ -123,8 +117,10 @@ public class LeagueStandingDao {
 
                     Map<String, Object> row = new HashMap<>();
 
+                    row.put("teamId", rs.getLong("team_id"));
                     row.put("rank", rs.getInt("rank"));
                     row.put("teamName", rs.getString("team_name"));
+                    row.put("teamLogo", rs.getString("team_logo"));
                     row.put("played", rs.getInt("played"));
                     row.put("win", rs.getInt("win"));
                     row.put("draw", rs.getInt("draw"));

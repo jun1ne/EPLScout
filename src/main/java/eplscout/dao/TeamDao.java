@@ -19,7 +19,7 @@ public class TeamDao {
 
         String sql = """
             INSERT INTO team
-            (team_id, name, country, founded_year, logo_url,
+            (api_team_id, name, country, founded_year, logo_url,
              stadium_name, stadium_city, stadium_capacity,
              league_id, season)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -40,6 +40,7 @@ public class TeamDao {
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
             for (Team t : teams) {
+
                 ps.setInt(1, t.getApiTeamId());
                 ps.setString(2, t.getName());
                 ps.setString(3, t.getCountry());
@@ -66,7 +67,7 @@ public class TeamDao {
         String sql = """
             SELECT team_id
             FROM team
-            WHERE team_id = ?
+            WHERE api_team_id = ?
               AND season = ?
         """;
 
@@ -90,15 +91,45 @@ public class TeamDao {
     }
 
     /* =====================================================
+       ★ 추가: team_id → api_team_id 조회
+       (시즌 변경 시 내부 team_id 재조회용)
+       ===================================================== */
+    public int findApiTeamIdByTeamId(long teamId) {
+
+        String sql = """
+            SELECT api_team_id
+            FROM team
+            WHERE team_id = ?
+        """;
+
+        try (Connection conn = DBUtil.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            ps.setLong(1, teamId);
+
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt("api_team_id");
+                }
+            }
+
+        } catch (Exception e) {
+            throw new RuntimeException("api_team_id 조회 실패", e);
+        }
+
+        return 0;
+    }
+
+    /* =====================================================
        3. 시즌 기준 API 팀 ID 목록
        ===================================================== */
     public List<Integer> findApiTeamIdsBySeason(int season) {
 
         String sql = """
-            SELECT team_id
+            SELECT api_team_id
             FROM team
             WHERE season = ?
-            ORDER BY team_id
+            ORDER BY api_team_id
         """;
 
         List<Integer> ids = new ArrayList<>();
@@ -110,7 +141,7 @@ public class TeamDao {
 
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    ids.add(rs.getInt("team_id"));
+                    ids.add(rs.getInt("api_team_id"));
                 }
             }
 
@@ -122,15 +153,22 @@ public class TeamDao {
     }
 
     /* =====================================================
-       4. GUI 전용: 팀 목록 조회
+       4. GUI 전용: 팀 목록 조회 (순위 포함 최종 버전)
        ===================================================== */
     public List<Map<String, Object>> findTeamsForView(int season) {
 
         String sql = """
-            SELECT team_id, name
-            FROM team
-            WHERE season = ?
-            ORDER BY name
+            SELECT 
+                t.team_id,
+                t.name,
+                t.logo_url,
+                ls.rank
+            FROM team t
+            LEFT JOIN league_standing ls
+                ON t.team_id = ls.team_id
+               AND t.season = ls.season
+            WHERE t.season = ?
+            ORDER BY ls.rank ASC
         """;
 
         List<Map<String, Object>> list = new ArrayList<>();
@@ -142,9 +180,13 @@ public class TeamDao {
 
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
+
                     Map<String, Object> row = new HashMap<>();
                     row.put("teamId", rs.getLong("team_id"));
                     row.put("name", rs.getString("name"));
+                    row.put("logoUrl", rs.getString("logo_url"));
+                    row.put("rank", rs.getInt("rank"));
+
                     list.add(row);
                 }
             }
@@ -194,7 +236,7 @@ public class TeamDao {
     public List<Team> findTeamsByLeagueAndSeason(int leagueId, int season) {
 
         String sql = """
-            SELECT team_id, name, league_id, season
+            SELECT team_id, api_team_id, name, league_id, season
             FROM team
             WHERE league_id = ?
               AND season = ?
@@ -210,11 +252,13 @@ public class TeamDao {
             ps.setInt(2, season);
 
             try (ResultSet rs = ps.executeQuery()) {
+
                 while (rs.next()) {
 
                     Team team = new Team();
+
                     team.setTeamId(rs.getLong("team_id"));
-                    team.setApiTeamId(rs.getInt("team_id"));
+                    team.setApiTeamId(rs.getInt("api_team_id"));
                     team.setName(rs.getString("name"));
                     team.setLeagueId(rs.getInt("league_id"));
                     team.setSeason(rs.getInt("season"));

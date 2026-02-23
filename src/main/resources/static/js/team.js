@@ -1,257 +1,241 @@
-console.log("TEAM JS LOADED");
+console.log("TEAM DETAIL JS LOADED");
 
-let playerChart = null;
+let positionChartInstance = null;
 
 document.addEventListener("DOMContentLoaded", async () => {
-    await loadTeams();
 
-    document.getElementById("loadBtn")
-        .addEventListener("click", loadTeamSummary);
+    const params = new URLSearchParams(location.search);
+    const teamId = params.get("teamId");
+    let season = params.get("season") || 2025;
 
-    document.getElementById("goRecommendBtn")
-        .addEventListener("click", goToRecommend);
+    if (!teamId) return;
+
+    const seasonSelect = document.getElementById("seasonSelect");
+
+    if (seasonSelect) {
+        seasonSelect.value = season;
+
+        seasonSelect.addEventListener("change", async () => {
+            const newSeason = seasonSelect.value;
+
+            const newUrl =
+                `/team.html?teamId=${teamId}&season=${newSeason}`;
+            window.history.pushState({}, "", newUrl);
+
+            await loadTeamSummary(teamId, newSeason);
+            await loadPlayers(teamId, newSeason);
+        });
+    }
+
+    await loadTeamSummary(teamId, season);
+    await loadPlayers(teamId, season);
 });
 
-/* ===============================
-   팀 목록 로드
-================================ */
-async function loadTeams() {
-    const season = document.getElementById("seasonInput").value;
-    const select = document.getElementById("teamSelect");
-
-    try {
-        const res = await fetch(`/api/team/list?season=${season}`);
-        const teams = await res.json();
-
-        select.innerHTML = `<option value="">팀 선택</option>`;
-        teams.forEach(team => {
-            const opt = document.createElement("option");
-            opt.value = team.teamId;
-            opt.textContent = team.name;
-            select.appendChild(opt);
-        });
-    } catch (e) {
-        console.error(e);
-        select.innerHTML = `<option value="">팀 로드 실패</option>`;
-    }
-}
 
 /* ===============================
-   팀 요약 + 선수단 조회
+   팀 요약 로드
 ================================ */
-async function loadTeamSummary() {
-    const teamId = document.getElementById("teamSelect").value;
-    const season = document.getElementById("seasonInput").value;
-
-    if (!teamId) {
-        alert("팀을 선택하세요");
-        return;
-    }
+async function loadTeamSummary(teamId, season) {
 
     try {
+
         const res = await fetch(`/api/team/summary/${teamId}/${season}`);
         const data = await res.json();
-        renderTeamDetail(data);
-        loadPlayers(teamId, season);
-    } catch (e) {
-        console.error(e);
+
+        document.getElementById("teamName").innerText =
+            data.teamName ?? "팀 정보";
+
+        const logoEl = document.getElementById("teamLogo");
+
+        if (logoEl) {
+            if (data.teamLogo) {
+                logoEl.src = data.teamLogo;
+                logoEl.style.display = "block";
+            } else {
+                logoEl.style.display = "none";
+            }
+        }
+
+        document.getElementById("avgAgeStat").innerText =
+            data.avgAge ? data.avgAge.toFixed(1) : "-";
+
+        document.getElementById("avgRatingStat").innerText =
+            data.avgRating ? data.avgRating.toFixed(2) : "-";
+
+        document.getElementById("seasonStat").innerText = season;
+
+        const weakBox = document.getElementById("weakPositionsBox");
+        const countBox = document.getElementById("positionCountBox");
+
+        if (weakBox && countBox) {
+
+            const weakPositions = data.weakPositions || [];
+            const positionCounts = data.positionCounts || {};
+
+            weakBox.innerHTML =
+                weakPositions.length > 0
+                    ? `<strong>약점 포지션:</strong> ${weakPositions.map(convertPosition).join(", ")}`
+                    : `<strong>약점 포지션:</strong> 없음`;
+
+            let countHtml = "<strong>포지션별 인원:</strong><br>";
+
+            for (const [pos, cnt] of Object.entries(positionCounts)) {
+                countHtml += `${convertPosition(pos)}: ${cnt}명<br>`;
+            }
+
+            countBox.innerHTML = countHtml;
+        }
+
+        if (data.positionAvgRatings) {
+            renderPositionChart(data.positionAvgRatings);
+        }
+
+    } catch (err) {
+        console.error("팀 요약 로딩 실패", err);
     }
 }
 
+
 /* ===============================
-   팀 상세 정보
+   포지션별 평균 평점 차트
 ================================ */
-function renderTeamDetail(data) {
-    let html = `
-        <p><strong>평균 연령:</strong> ${data.avgAge.toFixed(1)}</p>
-        <p><strong>평균 평점:</strong> ${data.avgRating.toFixed(2)}</p>
+function renderPositionChart(positionAvgRatings) {
 
-        <h4>포지션별 현황</h4>
-        <ul>
-    `;
+    const canvas = document.getElementById("positionChart");
+    if (!canvas) return;
 
-    for (const pos in data.positionCounts) {
-        html += `<li>${displayPositionName(pos)}: ${data.positionCounts[pos]}명</li>`;
+    if (positionChartInstance) {
+        positionChartInstance.destroy();
     }
 
-    html += `
-        </ul>
-        <hr>
+    const labels = Object.keys(positionAvgRatings || {}).map(convertPosition);
+    const values = Object.values(positionAvgRatings || {});
 
-        <h3>선수단</h3>
-        <ul id="playerList">로딩 중...</ul>
-
-        <div id="playerChartArea" style="display:none;">
-            <h3 id="playerName"></h3>
-            <canvas id="playerChart"></canvas>
-        </div>
-    `;
-
-    document.getElementById("teamDetail").innerHTML = html;
-}
-
-/* ===============================
-   선수 목록
-================================ */
-async function loadPlayers(teamId, season) {
-    const list = document.getElementById("playerList");
-
-    try {
-        const res = await fetch(`/api/team/${teamId}/players?season=${season}`);
-        const players = await res.json();
-
-        list.innerHTML = "";
-
-        players.forEach(p => {
-            const li = document.createElement("li");
-            li.style.cursor = "pointer";
-            li.innerText = `${p.name} (${displayPositionName(p.position)})`;
-            li.onclick = () => loadPlayerDetail(p.playerId);
-            list.appendChild(li);
-        });
-
-    } catch (e) {
-        console.error(e);
-        list.innerHTML = "<li>선수 로드 실패</li>";
-    }
-}
-
-/* ===============================
-   선수 상세 조회
-================================ */
-async function loadPlayerDetail(playerId) {
-    const season = document.getElementById("seasonInput").value;
-
-    try {
-        const res = await fetch(`/api/team/player/${playerId}?season=${season}`);
-        const player = await res.json();
-
-        console.log("차트용 선수 데이터:", player);
-
-        renderPlayerChart(player);
-
-    } catch (e) {
-        console.error("선수 상세 조회 실패", e);
-    }
-}
-
-/* ===============================
-   포지션 정규화 
-================================ */
-function normalizePosition(pos) {
-    return {
-        FW: "FW",
-        Attacker: "FW",
-        Forward: "FW",
-
-        MF: "MF",
-        Midfielder: "MF",
-
-        DF: "DF",
-        Defender: "DF",
-
-        GK: "GK",
-        Goalkeeper: "GK"
-    }[pos] || pos;
-}
-
-/* ===============================
-   차트 렌더링
-================================ */
-function renderPlayerChart(player) {
-    const area = document.getElementById("playerChartArea");
-    const title = document.getElementById("playerName");
-    const ctx = document.getElementById("playerChart");
-
-    area.style.display = "block";
-    title.innerText = `${player.name} (${displayPositionName(player.position)})`;
-
-    if (playerChart) {
-        playerChart.destroy();
-    }
-
-    const config = getChartConfigByPosition(player);
-
-    playerChart = new Chart(ctx, {
-        type: "bar",
+    positionChartInstance = new Chart(canvas, {
+        type: 'bar',
         data: {
-            labels: config.labels,
+            labels: labels,
             datasets: [{
-                label: config.label,
-                data: config.data
+                label: '평균 평점',
+                data: values
             }]
         },
         options: {
             responsive: true,
             scales: {
-                y: { beginAtZero: true }
+                y: {
+                    min: 5,
+                    max: 10
+                }
             }
         }
     });
 }
 
+
 /* ===============================
-   포지션별 지표
+   선수 목록 로드
 ================================ */
-function getChartConfigByPosition(p) {
+async function loadPlayers(teamId, season) {
 
-    const pos = normalizePosition(p.position);
-    const v = x => x ?? 0;
+    try {
 
-    switch (pos) {
+        const res =
+            await fetch(`/api/team/${teamId}/players?season=${season}`);
+        const players = await res.json();
 
-        case "FW":
-            return {
-                label: "공격 지표",
-                labels: ["득점", "어시스트", "슈팅"],
-                data: [v(p.goals), v(p.assists), v(p.shots)]
-            };
+        const body = document.getElementById("playerTableBody");
+        body.innerHTML = "";
 
-        case "MF":
-            return {
-                label: "미드필더 지표",
-                labels: ["어시스트", "키패스", "패스 성공률"],
-                data: [v(p.assists), v(p.keyPasses), v(p.passAccuracy)]
-            };
+        players.forEach(p => {
 
-        case "DF":
-            return {
-                label: "수비 지표",
-                labels: ["태클", "인터셉트", "클리어"],
-                data: [v(p.tackles), v(p.interceptions), v(p.clearances)]
-            };
+            const shirt =
+                (p.shirtNumber && p.shirtNumber !== 0)
+                    ? p.shirtNumber
+                    : "-";
 
-        case "GK":
-            return {
-                label: "골키퍼 지표",
-                labels: ["세이브", "실점"],
-                data: [v(p.saves), v(p.goalsConceded)]
-            };
+            const posClass =
+                p.position
+                    ? `pos-${p.position.toLowerCase()}`
+                    : "";
 
-        default:
-            console.warn("알 수 없는 포지션:", p.position);
-            return {
-                label: "기본 지표",
-                labels: ["출전", "평점"],
-                data: [v(p.appearances), v(p.avgRating)]
-            };
+            const tr = document.createElement("tr");
+
+            // =========================
+            // 부상 뱃지 생성
+            // =========================
+            let injuryBadge = "";
+            if (p.isInjured) {
+
+                let tooltip = "부상 중";
+
+                if (p.injuryType) {
+                    tooltip += ` - ${p.injuryType}`;
+                }
+
+                if (p.expectedReturn) {
+                    tooltip += ` (복귀 예상: ${p.expectedReturn})`;
+                }
+
+                injuryBadge =
+                    `<span class="injury-badge" title="${tooltip}">
+                        🔴 부상
+                     </span>`;
+            }
+
+            tr.innerHTML = `
+                <td>${shirt}</td>
+
+                <td class="player-cell">
+                    <img src="${p.photoUrl ?? ''}"
+                         class="player-photo"
+                         onerror="this.style.display='none'"/>
+                    ${p.name}
+                    ${injuryBadge}
+                </td>
+
+                <td>
+                    <span class="pos-badge ${posClass}">
+                        ${convertPosition(p.position) ?? "-"}
+                    </span>
+                </td>
+
+                <td>${p.age ?? "-"}</td>
+
+                <td>${p.nationality ?? "-"}</td>
+            `;
+
+            tr.style.cursor = "pointer";
+
+            tr.addEventListener("click", () => {
+                window.location.href =
+                    `/player.html?playerId=${p.playerId}&season=${season}`;
+            });
+
+            body.appendChild(tr);
+        });
+
+        document.getElementById("squadSizeStat").innerText =
+            players.length;
+
+    } catch (err) {
+        console.error("선수 목록 로딩 실패", err);
     }
 }
 
-/* ===============================
-   기타
-================================ */
-function goToRecommend() {
-    const teamId = document.getElementById("teamSelect").value;
-    const season = document.getElementById("seasonInput").value;
-    location.href = `/index.html?teamId=${teamId}&season=${season}`;
-}
 
-function displayPositionName(pos) {
+/* ===============================
+   포지션 한글 변환
+================================ */
+function convertPosition(pos) {
     return {
-        GK: "Goalkeeper",
-        DF: "Defender",
-        MF: "Midfielder",
-        FW: "Attacker"
+        Goalkeeper: "골키퍼",
+        Defender: "수비수",
+        Midfielder: "미드필더",
+        Attacker: "공격수",
+        GK: "골키퍼",
+        DF: "수비수",
+        MF: "미드필더",
+        FW: "공격수"
     }[pos] || pos;
 }
